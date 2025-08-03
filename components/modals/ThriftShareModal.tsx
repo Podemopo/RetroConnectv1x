@@ -1,5 +1,5 @@
 // sdaw/components/modals/ThriftShareModal.tsx
-import { FontAwesome, FontAwesome5 } from '@expo/vector-icons';
+import { FontAwesome, FontAwesome5, Ionicons } from '@expo/vector-icons'; // Added Ionicons
 import { useTheme } from '@react-navigation/native';
 import { decode } from 'base64-arraybuffer';
 import { ResizeMode, Video } from 'expo-av';
@@ -19,9 +19,11 @@ import {
     StyleSheet,
     Text,
     TextInput,
-    View
+    View,
+    ViewToken
 } from 'react-native';
-import { FlatList, GestureHandlerRootView, ScrollView, TouchableOpacity } from 'react-native-gesture-handler';
+// --- MODIFICATION: Added TapGestureHandler and State ---
+import { FlatList, GestureHandlerRootView, ScrollView, State, TapGestureHandler, TouchableOpacity } from 'react-native-gesture-handler';
 import { Portal } from 'react-native-portalize';
 import Animated, { useAnimatedStyle, useSharedValue, withSpring, withTiming } from 'react-native-reanimated';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -31,9 +33,8 @@ import { useAuth } from '../context/AuthContext';
 import { MenuOption } from '../menus/ItemOptionsMenu';
 import { CommentsModal } from './CommentsModal';
 import { ConfirmationModal } from './ConfirmationModal';
-import { ThriftShareReport } from './ThriftShareReport';
-// --- FIX: Corrected the import path for the custom image modal ---
 import FullScreenImageModal from './FullScreenImageModal';
+import { ThriftShareReport } from './ThriftShareReport';
 
 // --- Interfaces ---
 interface User {
@@ -72,8 +73,6 @@ interface ThriftShareModalProps {
 
 
 // --- Helper Components ---
-// --- REMOVED --- GalleryImage component is no longer needed
-
 const formatRelativeTime = (dateString: string): string => {
     const date = new Date(dateString);
     const now = new Date();
@@ -135,7 +134,8 @@ const Pagination = ({ data, activeIndex }: { data: any[]; activeIndex: number; }
     );
 };
 
-const StoryCard = ({ post, onDeletePost, onEditPost, onOpenComments, onCloseModal, onOpenImageViewer }: { post: Post, onDeletePost: (postId: number) => void, onEditPost: (post: Post) => void, onOpenComments: (post: Post) => void, onCloseModal: () => void, onOpenImageViewer: (images: string[], index: number) => void }) => {
+// --- MODIFICATION: Added isFocused prop to StoryCard ---
+const StoryCard = ({ post, onDeletePost, onEditPost, onOpenComments, onCloseModal, onOpenImageViewer, isFocused }: { post: Post, onDeletePost: (postId: number) => void, onEditPost: (post: Post) => void, onOpenComments: (post: Post) => void, onCloseModal: () => void, onOpenImageViewer: (images: string[], index: number) => void, isFocused: boolean }) => {
     const { colors } = useTheme();
     const [liked, setLiked] = useState(false);
     const [likes, setLikes] = useState(post.likes_count || 0);
@@ -148,6 +148,11 @@ const StoryCard = ({ post, onDeletePost, onEditPost, onOpenComments, onCloseModa
     const [isReportModalVisible, setReportModalVisible] = useState(false);
     const [isDeleteConfirmVisible, setDeleteConfirmVisible] = useState(false);
 
+    // --- NEW: State and refs for video control ---
+    const videoRef = useRef<Video>(null);
+    const [isPlaying, setIsPlaying] = useState(false);
+    // --- REMOVED: isFullScreen state is no longer needed, we use the router now ---
+
     const media: { type: 'video' | 'image'; url: string }[] = [];
     if (post.video_url) {
         media.push({ type: 'video', url: post.video_url });
@@ -157,11 +162,38 @@ const StoryCard = ({ post, onDeletePost, onEditPost, onOpenComments, onCloseModa
     }
     if (post.image_urls) {
         post.image_urls.forEach(url => {
-            if (url && url !== post.image_url) { // Avoid duplicates and nulls
+            if (url && url !== post.image_url) {
                 media.push({ type: 'image', url });
             }
         });
     }
+
+    // --- NEW: Effect to auto-pause/play video when focus changes ---
+    useEffect(() => {
+        if (isFocused && isPlaying) {
+             videoRef.current?.playAsync();
+        } else {
+             videoRef.current?.pauseAsync();
+        }
+    }, [isFocused]);
+
+
+    // --- NEW: Handlers for video tap gestures ---
+    const handleSingleTap = () => {
+        if (videoRef.current) {
+            isPlaying ? videoRef.current.pauseAsync() : videoRef.current.playAsync();
+        }
+    };
+
+    // --- MODIFICATION: Use router to open webview for fullscreen ---
+    const handleDoubleTap = (event: { nativeEvent: { state: State } }) => {
+        if (event.nativeEvent.state === State.ACTIVE && post.video_url) {
+            router.push({
+                pathname: '/webview',
+                params: { url: post.video_url, title: 'Video Preview' }
+            });
+        }
+    };
 
     const handleOpenImageViewer = (index: number) => {
         const imagesOnly = media.filter(m => m.type === 'image').map(m => m.url);
@@ -265,22 +297,37 @@ const StoryCard = ({ post, onDeletePost, onEditPost, onOpenComments, onCloseModa
                         viewabilityConfig={viewabilityConfig}
                         renderItem={({ item, index }) => (
                             <View style={{ width: Dimensions.get('window').width - 32, height: '100%' }}>
+                                {/* --- MODIFICATION: Added video player with gesture handlers --- */}
                                 {item.type === 'video' ? (
-                                    <Video
-                                        source={{ uri: item.url }}
-                                        style={styles.cardImage}
-                                        resizeMode={ResizeMode.COVER}
-                                        isLooping
-                                        shouldPlay
-                                    />
+                                    <TapGestureHandler onHandlerStateChange={handleDoubleTap} numberOfTaps={2}>
+                                        <TapGestureHandler onHandlerStateChange={({ nativeEvent }) => { if (nativeEvent.state === State.ACTIVE) handleSingleTap() }} numberOfTaps={1}>
+                                            <View style={styles.cardImage}>
+                                                <Video
+                                                    ref={videoRef}
+                                                    source={{ uri: item.url }}
+                                                    style={StyleSheet.absoluteFill}
+                                                    resizeMode={ResizeMode.COVER}
+                                                    isLooping
+                                                    onPlaybackStatusUpdate={(status) => {
+                                                        if (status.isLoaded) setIsPlaying(status.isPlaying);
+                                                    }}
+                                                />
+                                                {!isPlaying && (
+                                                    <View style={styles.playPauseOverlay}>
+                                                        <Ionicons name="play" size={60} color="rgba(255,255,255,0.8)" />
+                                                    </View>
+                                                )}
+                                            </View>
+                                        </TapGestureHandler>
+                                    </TapGestureHandler>
                                 ) : (
                                     <TouchableOpacity
                                         activeOpacity={0.9}
                                         onPress={() => handleOpenImageViewer(index)}>
-                                        <Image 
-                                            source={{ uri: item.url }} 
-                                            style={styles.cardImage} 
-                                            resizeMode="cover" 
+                                        <Image
+                                            source={{ uri: item.url }}
+                                            style={styles.cardImage}
+                                            resizeMode="cover"
                                         />
                                     </TouchableOpacity>
                                 )}
@@ -334,7 +381,7 @@ const StoryCard = ({ post, onDeletePost, onEditPost, onOpenComments, onCloseModa
                         </TouchableOpacity>
 
                         {isMenuVisible ? (
-                             <View style={[styles.customMenuContainer, { backgroundColor: colors.card }]}>
+                            <View style={[styles.customMenuContainer, { backgroundColor: colors.card }]}>
                                 {menuOptions.map((option, index) => (
                                     <TouchableOpacity
                                         key={option.title}
@@ -355,12 +402,12 @@ const StoryCard = ({ post, onDeletePost, onEditPost, onOpenComments, onCloseModa
                     </View>
                 </View>
             </Pressable>
+            {/* --- REMOVED: Fullscreen Video Modal is now handled by webview --- */}
             <ThriftShareReport
                 visible={isReportModalVisible}
                 onClose={() => setReportModalVisible(false)}
                 listingId={post.listing_id}
                 reporterId={user?.id || ''}
-                reporterUsername={user?.user_metadata?.fullName || 'Anonymous'}
             />
             <ConfirmationModal
                 visible={isDeleteConfirmVisible}
@@ -375,6 +422,7 @@ const StoryCard = ({ post, onDeletePost, onEditPost, onOpenComments, onCloseModa
     );
 };
 
+// ... (The AddPostModal component remains unchanged)
 const AddPostModal = ({ visible, onClose, listings, onSave, user, editingPost }: { visible: boolean; onClose: () => void; listings: Listing[]; onSave: (caption: string, listing: Listing, videoUrl: string | null, imageUrls: string[], postId?: number) => Promise<void>; user: any; editingPost: Post | null }) => {
     const [caption, setCaption] = useState('');
     const [selectedListing, setSelectedListing] = useState<Listing | null>(null);
@@ -642,6 +690,7 @@ const AddPostModal = ({ visible, onClose, listings, onSave, user, editingPost }:
     );
 };
 
+
 export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onClose, initialPostId, initialOpenCommentsPostId }) => {
     const { colors } = useTheme();
     const insets = useSafeAreaInsets();
@@ -653,16 +702,23 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
     const [editingPost, setEditingPost] = useState<Post | null>(null);
     const flatListRef = useRef<FlatList>(null);
     const [commentingOnPost, setCommentingOnPost] = useState<Post | null>(null);
-    
-    // --- STATE FOR NEW MODAL ---
+
+    const [visiblePostId, setVisiblePostId] = useState<number | null>(null);
+
     const [isImageViewerVisible, setImageViewerVisible] = useState(false);
     const [imageViewerIndex, setImageViewerIndex] = useState(0);
     const [imageViewerImages, setImageViewerImages] = useState<string[]>([]);
-    
-    // --- REMOVED --- galleryRef is no longer needed
 
     const translateY = useSharedValue(Dimensions.get('window').height);
     const backdropOpacity = useSharedValue(0);
+
+    const onViewableItemsChanged = useRef(({ viewableItems }: { viewableItems: ViewToken[] }) => {
+        if (viewableItems.length > 0 && viewableItems[0].isViewable) {
+            setVisiblePostId(viewableItems[0].item.id);
+        }
+    }).current;
+
+    const viewabilityConfig = useRef({ itemVisiblePercentThreshold: 50 }).current;
 
     useEffect(() => {
         if (visible) {
@@ -691,7 +747,7 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
                 .order('created_at', { ascending: false });
 
             if (postError) throw new Error(`Failed to fetch posts: ${postError.message}`);
-            
+
             if (postData) {
                 const validPosts = postData.filter(post => post.users);
 
@@ -712,7 +768,7 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
                     .select('id, image_urls, user_id, item_name')
                     .eq('user_id', user.id)
                     .eq('status', 'active');
-                
+
                 if (listingsError) throw new Error(`Failed to fetch listings: ${listingsError.message}`);
                 setListings(listingsData || []);
             }
@@ -757,7 +813,7 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
         const postData = {
             user_id: user.id,
             caption: caption,
-            image_url: imageUrls[0] || selectedListing.image_urls[0], // Use first uploaded image as primary
+            image_url: imageUrls[0] || selectedListing.image_urls[0],
             listing_id: selectedListing.id,
             listing_url: `/listing/${selectedListing.id}`,
             video_url: videoUrl,
@@ -775,7 +831,7 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
             }
 
             if (error) throw new Error(`Failed to save post: ${error.message}`);
-            
+
             setAddPostModalVisible(false);
             setEditingPost(null);
             await fetchPostsAndListings();
@@ -805,8 +861,6 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
         setImageViewerVisible(true);
     };
 
-    // --- REMOVED --- renderItem, keyExtractor, and transition for old gallery are no longer needed
-
     if (!visible) {
         return null;
     }
@@ -824,7 +878,7 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
                         <View style={styles.headerPlaceholder} />
                     </View>
                     {loading ? (
-                        <ActivityIndicator size="large" color={colors.primary} style={{ flex: 1 }}/>
+                        <ActivityIndicator size="large" color={colors.primary} style={{ flex: 1 }} />
                     ) : (
                         <FlatList
                             ref={flatListRef}
@@ -832,6 +886,7 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
                             renderItem={({ item }) => (
                                 <StoryCard
                                     post={item}
+                                    isFocused={item.id === visiblePostId}
                                     onDeletePost={handleDeletePost}
                                     onEditPost={handleOpenAddModal}
                                     onOpenComments={setCommentingOnPost}
@@ -840,7 +895,11 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
                                 />
                             )}
                             keyExtractor={(item) => item.id.toString()}
-                            contentContainerStyle={[styles.feedContainer, { paddingBottom: 100 + insets.bottom }]}
+                            // --- FIX: Increased padding and removed pagingEnabled to fix scrolling ---
+                            contentContainerStyle={[styles.feedContainer, { paddingBottom: 120 + insets.bottom }]}
+                            onViewableItemsChanged={onViewableItemsChanged}
+                            viewabilityConfig={viewabilityConfig}
+                            showsVerticalScrollIndicator={false}
                         />
                     )}
                     <View style={[styles.footer, { backgroundColor: colors.card, height: 72 + insets.bottom, paddingBottom: insets.bottom }]}>
@@ -863,8 +922,7 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
                             post={commentingOnPost}
                         />
                     )}
-                    
-                    {/* --- NEW: Use the FullScreenImageModal --- */}
+
                     <FullScreenImageModal
                         images={imageViewerImages.map(url => ({ uri: url }))}
                         initialIndex={imageViewerIndex}
@@ -879,6 +937,13 @@ export const ThriftShareModal: React.FC<ThriftShareModalProps> = ({ visible, onC
 };
 
 const styles = StyleSheet.create({
+    playPauseOverlay: {
+        ...StyleSheet.absoluteFillObject,
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: 'rgba(0,0,0,0.2)',
+    },
+    // --- REMOVED: Styles for old fullscreen modal ---
     backdrop: {
         backgroundColor: 'rgba(0,0,0,0.3)',
     },
@@ -962,9 +1027,11 @@ const styles = StyleSheet.create({
     cardImage: {
         width: '100%',
         height: '100%',
-        // position: 'absolute', // This can sometimes cause issues in FlatList
         borderRadius: 24,
         resizeMode: 'cover',
+        justifyContent: 'center',
+        alignItems: 'center',
+        backgroundColor: '#000', // Add a background color for videos
     },
     bottomContainer: {
         position: 'absolute',
