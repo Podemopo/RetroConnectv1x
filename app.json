@@ -1,22 +1,37 @@
 {
   "expo": {
-    "name": "retroconnect-trial1",
+    "name": "RetroConnect",
     "slug": "retroconnect-trial1",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "retroconnecttrial1",
+    "scheme": "retroconnect",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.podaren.retroconnect",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSCameraUsageDescription": "Allow $(PRODUCT_NAME) to use your camera for video calls and to scan QR codes.",
+        "NSMicrophoneUsageDescription": "Allow $(PRODUCT_NAME) to use your microphone for voice and video calls.",
+        "LSApplicationQueriesSchemes": ["gcash", "paymaya"]
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.podaren.retroconnecttrial1",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.BLUETOOTH_CONNECT"
+      ]
     },
     "web": {
       "bundler": "metro",
@@ -33,10 +48,36 @@
           "resizeMode": "contain",
           "backgroundColor": "#ffffff"
         }
-      ]
+      ],
+      "expo-video",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "queries": {
+              "package": ["com.globe.gcash.android", "com.paymaya"]
+            }
+          }
+        }
+      ],
+      "expo-web-browser",
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Allow $(PRODUCT_NAME) to use your location to find nearby items."
+        }
+      ],
+      "@config-plugins/react-native-webrtc",
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "607a8c0c-ef1e-4a23-9ff5-4ccfe8bff8fc"
+      }
     }
   }
 }
